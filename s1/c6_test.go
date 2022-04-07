@@ -78,6 +78,18 @@ func min(a, b int) int {
 	return b
 }
 
+// get average hamming distance between given number of blocks of size keySize
+func GetAvgHammingDistance(ctext string, keySize int, blocks int) float64 {
+	distances := 0
+	for j := 0; j < blocks-1; j++ {
+		s1 := ctext[keySize*j : keySize*(j+1)]
+		s2 := ctext[keySize*(j+1) : keySize*(j+2)]
+		distance := HammingDistance(s1, s2)
+		distances += distance
+	}
+	return float64(distances) / float64(blocks-1)
+}
+
 // guess the key size based on hamming distance.
 // returns a single best match (for now)
 func GuessKeySize(ctext string) int {
@@ -89,20 +101,13 @@ func GuessKeySize(ctext string) int {
 	keys := make([]int, 0, 40)
 
 	for i := minKeySize; i < maxKeySize; i++ {
-		distances := 0
-		for j := 0; j < blocks-1; j++ {
-			s1 := ctext[i*j : i*(j+1)]
-			s2 := ctext[i*(j+1) : i*(j+2)]
-			distance := HammingDistance(s1, s2)
-			distances += distance
-		}
-		distance := float64(distances) / float64(blocks-1)
-
-		result[i] = distance / float64(i)
+		distance := GetAvgHammingDistance(ctext, i, blocks)
+		result[i] = distance / float64(i) // normalized by key size
 		keys = append(keys, i)
 	}
 
 	sort.Slice(keys, func(i, j int) bool { return result[keys[i]] < result[keys[j]] })
+	// return the key with smallest hamming distance
 	return keys[0]
 }
 
@@ -143,7 +148,7 @@ func GuessSingleCharXor(str string) byte {
 			resBuffer := XorC(bytes, byte(c)^byte(letter))
 			res := string(resBuffer)
 			if IsAcceptable(res) { //&& CountWords(res, &speller) > 3 {
-				log.Printf("%d: %s: %s\n", c, string(letter), res)
+				// log.Printf("%d: %s: %s\n", c, string(letter), res)
 				return byte(c) ^ byte(letter)
 			}
 		}
@@ -180,6 +185,7 @@ func TestFindXorKey(t *testing.T) {
 
 	key := FindXorKey(content)
 	log.Println("Key:" + string(key))
+	assert.Equal(t, "Terminator X: Bring the noise", string(key))
 
 	plainText := EncryptRepeatedKeyXor(content, string(key))
 	log.Println(string(plainText))
