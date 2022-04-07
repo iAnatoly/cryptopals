@@ -33,11 +33,10 @@ import (
 
 func EncryptRepeatedKeyXor(plaintext, key string) []byte {
 	resultBytes := make([]byte, len(plaintext))
-	keyCounter := 0
 
 	for i := range plaintext {
-		resultBytes[i] = plaintext[i] ^ key[keyCounter%len(key)]
-		keyCounter++
+		resultBytes[i] = plaintext[i] ^ key[i%len(key)]
+
 	}
 	return resultBytes
 }
