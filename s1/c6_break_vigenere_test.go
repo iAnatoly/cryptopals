@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"errors"
 	"io/ioutil"
 	"log"
 	"math/bits"
@@ -79,11 +80,11 @@ func min(a, b int) int {
 }
 
 // get average hamming distance between given number of blocks of size keySize
-func GetAvgHammingDistance(ctext string, keySize int, blocks int) float64 {
+func GetAvgHammingDistance(cipherText string, keySize int, blocks int) float64 {
 	distances := 0
 	for j := 0; j < blocks-1; j++ {
-		s1 := ctext[keySize*j : keySize*(j+1)]
-		s2 := ctext[keySize*(j+1) : keySize*(j+2)]
+		s1 := cipherText[keySize*j : keySize*(j+1)]
+		s2 := cipherText[keySize*(j+1) : keySize*(j+2)]
 		distance := HammingDistance(s1, s2)
 		distances += distance
 	}
@@ -91,34 +92,39 @@ func GetAvgHammingDistance(ctext string, keySize int, blocks int) float64 {
 }
 
 // guess the key size based on hamming distance.
-// returns a single best match (for now)
-func GuessKeySize(ctext string) int {
+// return all key sizes ranked by hamming distance ASC
+func GuessKeySize(cipherText string) []int {
 	const minKeySize = 4
-	const blocks = 4
-	maxKeySize := min(40, len(ctext)/blocks)
+	const blocks = 3 // works much better with 4 blocks - but I need code working for worst-case scenarios
+	maxKeySize := min(40, len(cipherText)/blocks)
 
 	result := make(map[int]float64)
-	keys := make([]int, 0, 40)
+	keys := make([]int, 0, maxKeySize-minKeySize)
 
 	for i := minKeySize; i < maxKeySize; i++ {
-		distance := GetAvgHammingDistance(ctext, i, blocks)
+		distance := GetAvgHammingDistance(cipherText, i, blocks)
 		result[i] = distance / float64(i) // normalized by key size
 		keys = append(keys, i)
 	}
 
 	sort.Slice(keys, func(i, j int) bool { return result[keys[i]] < result[keys[j]] })
-	// return the key with smallest hamming distance
-	return keys[0]
+
+	// DEBUG: print out the scores in ranked order, along with the normalized hamming distance
+	for _, x := range keys {
+		log.Printf(" * %d: %f", x, result[x])
+	}
+
+	return keys
 }
 
 func TestGuessKeySize(t *testing.T) {
-	assert.Equal(t, 8, GuessKeySize("abcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh"))
+	assert.Equal(t, 8, GuessKeySize("abcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh")[0])
 }
 
 //split and transpose the ciphertext
-func SplitAndTranspose(ctext string, keySize int) []string {
+func SplitAndTranspose(cipherText string, keySize int) []string {
 	result := make([]string, keySize)
-	for i, r := range ctext {
+	for i, r := range cipherText {
 		result[i%keySize] += string(r)
 	}
 	return result
@@ -139,36 +145,51 @@ func IsAcceptable(str string) bool {
 	return true
 }
 
-func GuessSingleCharXor(str string) byte {
+func GuessSingleCharXor(str string) (byte, error) {
 	bytes := []byte(str)
 	frequents, _ := GetOrderedFrequencies(bytes)
 
-	for _, letter := range " T" {
+	for _, letter := range " Tea" {
 		for _, c := range frequents {
 			resBuffer := XorC(bytes, byte(c)^byte(letter))
 			res := string(resBuffer)
 			if IsAcceptable(res) { //&& CountWords(res, &speller) > 3 {
-				// log.Printf("%d: %s: %s\n", c, string(letter), res)
-				return byte(c) ^ byte(letter)
+				return byte(c) ^ byte(letter), nil
 			}
 		}
 	}
-	log.Fatal("Could not find suitable key")
-	return 0
+	return 0, errors.New("Could not find suitable key")
 }
 
-func FindXorKey(ctext string) []byte {
-	guessedKeySize := GuessKeySize(ctext)
-	log.Printf("Guessed key size: %d", guessedKeySize)
-	transposedText := SplitAndTranspose(ctext, guessedKeySize)
-
-	guessedKey := make([]byte, 0, guessedKeySize)
+func GuessXorKey(transposedText []string) ([]byte, error) {
+	guessedKey := make([]byte, 0, len(transposedText))
 	for _, line := range transposedText {
-		charKey := GuessSingleCharXor(line)
+		charKey, err := GuessSingleCharXor(line)
+		if err != nil {
+			return nil, err
+		}
 		guessedKey = append(guessedKey, charKey)
 	}
-	log.Println(string(guessedKey))
-	return guessedKey
+	return guessedKey, nil
+}
+
+func FindXorKey(cipherText string) []byte {
+	guessedKeySizes := GuessKeySize(cipherText)
+
+	for _, guessedKeySize := range guessedKeySizes {
+
+		log.Printf("Trying for guessed key size: %d", guessedKeySize)
+		transposedText := SplitAndTranspose(cipherText, guessedKeySize)
+		guessedKey, err := GuessXorKey(transposedText)
+		if err != nil {
+			log.Printf("Error guessing key for size %d: %s", guessedKeySize, err)
+			continue
+		}
+		log.Println(string(guessedKey))
+		return guessedKey
+	}
+	return nil
+
 }
 
 func TestFindXorKey(t *testing.T) {
