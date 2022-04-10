@@ -5,6 +5,7 @@ go 1.17
 require (
 	github.com/stretchr/testify v1.7.1
 	github.com/trustmaster/go-aspell v0.0.0-20200701131845-c2b1f55bec8f
+	github.com/forgoer/openssl v1.2.1
 )
 
 require (
