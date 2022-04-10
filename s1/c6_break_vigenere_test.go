@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/bits"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,32 +94,31 @@ func GetAvgHammingDistance(cipherText string, keySize int, blocks int) float64 {
 
 // guess the key size based on hamming distance.
 // return all key sizes ranked by hamming distance ASC
-func GuessKeySize(cipherText string) []int {
+func GuessKeySize(cipherText string, sampleBlocks int) []int {
 	const minKeySize = 4
-	const blocks = 3 // works much better with 4 blocks - but I need code working for worst-case scenarios
-	maxKeySize := min(40, len(cipherText)/blocks)
 
+	maxKeySize := min(40, len(cipherText)/sampleBlocks)
 	result := make(map[int]float64)
 	keys := make([]int, 0, maxKeySize-minKeySize)
 
 	for i := minKeySize; i < maxKeySize; i++ {
-		distance := GetAvgHammingDistance(cipherText, i, blocks)
+		distance := GetAvgHammingDistance(cipherText, i, sampleBlocks)
 		result[i] = distance / float64(i) // normalized by key size
 		keys = append(keys, i)
 	}
 
 	sort.Slice(keys, func(i, j int) bool { return result[keys[i]] < result[keys[j]] })
 
-	// DEBUG: print out the scores in ranked order, along with the normalized hamming distance
+	/* DEBUG: print out the scores in ranked order, along with the normalized hamming distance
 	for _, x := range keys {
 		log.Printf(" * %d: %f", x, result[x])
-	}
+	}*/
 
 	return keys
 }
 
 func TestGuessKeySize(t *testing.T) {
-	assert.Equal(t, 8, GuessKeySize("abcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh")[0])
+	assert.Equal(t, 8, GuessKeySize("abcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh", 4)[0])
 }
 
 //split and transpose the ciphertext
@@ -149,7 +149,7 @@ func GuessSingleCharXor(str string) (byte, error) {
 	bytes := []byte(str)
 	frequents, _ := GetOrderedFrequencies(bytes)
 
-	for _, letter := range " Tea" {
+	for _, letter := range " TtEeAaRrIiOoHh" {
 		for _, c := range frequents {
 			resBuffer := XorC(bytes, byte(c)^byte(letter))
 			res := string(resBuffer)
@@ -173,22 +173,20 @@ func GuessXorKey(transposedText []string) ([]byte, error) {
 	return guessedKey, nil
 }
 
-func FindXorKey(cipherText string) []byte {
-	guessedKeySizes := GuessKeySize(cipherText)
+func FindXorKey(cipherText string, guessedKeySizes []int) ([]byte, error) {
 
 	for _, guessedKeySize := range guessedKeySizes {
-
-		log.Printf("Trying for guessed key size: %d", guessedKeySize)
+		//log.Printf("Trying for guessed key size: %d", guessedKeySize)
 		transposedText := SplitAndTranspose(cipherText, guessedKeySize)
 		guessedKey, err := GuessXorKey(transposedText)
 		if err != nil {
-			log.Printf("Error guessing key for size %d: %s", guessedKeySize, err)
+			//log.Printf("Error guessing key for size %d: %s", guessedKeySize, err)
 			continue
 		}
 		log.Println(string(guessedKey))
-		return guessedKey
+		return guessedKey, nil
 	}
-	return nil
+	return nil, errors.New("Key guess failed")
 
 }
 
@@ -204,10 +202,16 @@ func TestFindXorKey(t *testing.T) {
 	log.Printf("Decoded text content length: %d\n", len(unhex))
 	content := string(unhex)
 
-	key := FindXorKey(content)
+	guessedKeySizes := GuessKeySize(content, 4) //sample 4 blocks
+	key, err := FindXorKey(content, guessedKeySizes)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	log.Println("Key:" + string(key))
 	assert.Equal(t, "Terminator X: Bring the noise", string(key))
 
 	plainText := EncryptRepeatedKeyXor(content, string(key))
-	log.Println(string(plainText))
+	//log.Println(string(plainText))
+	assert.True(t, strings.HasPrefix(string(plainText), "I'm back and I'm ringin' the bell"))
 }
