@@ -38,6 +38,11 @@ What's the point of even doing this stuff if you aren't going to learn from it?
 func EncryptCBCviaECB(plainText []byte, key []byte, IV []byte) []byte {
 	xIV := make([]byte, len(IV))
 	copy(xIV, IV)
+
+	if len(plainText)%16 != 0 {
+		plainText = PadPKCS7(plainText, (len(plainText)/16+1)*16)
+	}
+
 	cipherText := make([]byte, len(plainText))
 	buf := make([]byte, 16)
 
