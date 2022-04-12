@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"log"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 /*
@@ -28,9 +30,19 @@ func HasAllTopBitsSet(bytes []byte) bool {
 	return true
 }
 
-func TestECBDetect(t *testing.T) {
-	const blockSize = 16
+func RepeatingBlocksCount(cipherText []byte, blockSize int) int {
+	repeatedBlockCount := 0
+	for i := 0; i < len(cipherText); i += blockSize {
+		for j := i + blockSize; j < len(cipherText); j += blockSize {
+			if bytes.Equal(cipherText[i:i+blockSize], cipherText[j:j+blockSize]) {
+				repeatedBlockCount++
+			}
+		}
+	}
+	return repeatedBlockCount
+}
 
+func TestECBDetect(t *testing.T) {
 	cipherTexts := ReadFileAsSliceOfStrings("8.txt")
 	for k, cipherText := range cipherTexts {
 		unHex, err := hex.DecodeString(cipherText)
@@ -38,12 +50,10 @@ func TestECBDetect(t *testing.T) {
 			log.Fatal(err)
 		}
 
-		for i := 0; i < len(unHex); i += 16 {
-			for j := i + 16; j < len(unHex); j += 16 {
-				if bytes.Equal(unHex[i:i+16], unHex[j:j+16]) {
-					log.Printf("blocks %d, %d match on line %d", i, j, k)
-				}
-			}
+		r := RepeatingBlocksCount(unHex, 16)
+		if r > 0 {
+			log.Printf("Found %d blocks matching on line %d", r, k)
+			assert.Equal(t, 132, k) // post-factum test - it is line 132, and 132 only
 		}
 
 	}
