@@ -49,6 +49,7 @@ If our experience is any guideline, this attack will get you code execution in s
 import (
 	"encoding/base64"
 	"errors"
+	"hash/fnv"
 	"log"
 	"strings"
 	"testing"
@@ -58,7 +59,6 @@ import (
 )
 
 const MysteryString = "Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK"
-const constantAESKey = "YELLOW SUBMARINE"
 
 func PadAndEncryptECB(buf []byte, key []byte) []byte {
 	suffix, err := base64.StdEncoding.DecodeString(MysteryString)
@@ -92,39 +92,51 @@ func guessBlockSize(constantAESKey []byte, encryptor func([]byte, []byte) []byte
 }
 
 func TestDiscoverBlockSize(t *testing.T) {
-	//constantAESKey := GenerateRandomAESKey()
+	constantAESKey := GenerateRandomAESKey()
 	blockSize := guessBlockSize([]byte(constantAESKey), PadAndEncryptECB)
 	assert.Equal(t, 16, blockSize)
 }
 
 func TestVerifyECB(t *testing.T) {
-	//constantAESKey := GenerateRandomAESKey()
+	constantAESKey := GenerateRandomAESKey()
 	plainText := strings.Repeat("x", 3*16)
 	cipherText := PadAndEncryptECB([]byte(plainText), []byte(constantAESKey))
 	assert.True(t, DetectECB(cipherText)) // use DetectECB form C11
 }
 
+func hash64(buf []byte) uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(buf))
+	return h.Sum64()
+}
+
 func OracleX(key []byte, blockSize int, detected []byte) (byte, error) {
 
 	startingPosition := blockSize - 1 - len(detected)
+	targetBlock := len(detected) / 16
+
 	if startingPosition < 0 {
-		startingPosition = -blockSize*(startingPosition/blockSize) - 1
+		startingPosition += blockSize * targetBlock
 	}
-	log.Printf("Starting position: %d", startingPosition)
+	//log.Printf("Starting position: %d, %d", startingPosition, targetBlock)
 
 	plainTextBase := strings.Repeat("_", startingPosition)
-	targetByte := PadAndEncryptECB([]byte(plainTextBase), key)[blockSize-1-len(detected)]
-	oracleDict := make(map[byte]byte)
+	//log.Printf("Plaintext base: %s", plainTextBase)
 
-	for _, r := range "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ,!-=!@#$%^&*()[]{};:'" {
+	targetByte := hash64(PadAndEncryptECB([]byte(plainTextBase), key)[blockSize*targetBlock : 16+blockSize*targetBlock])
+	oracleDict := make(map[uint64]byte)
+
+	for r := rune(0); r < 256; r++ {
 		oracleText := plainTextBase + string(detected) + string(r)
+		//log.Printf("Oracle text: %s", oracleText)
 		oracleBytes := PadAndEncryptECB([]byte(oracleText), key)
-		oracleDict[oracleBytes[blockSize-1-len(detected)]] = byte(r)
+		hashed := hash64(oracleBytes[blockSize*targetBlock : 16+blockSize*targetBlock])
+		oracleDict[hashed] = byte(r)
 	}
 
 	_, present := oracleDict[targetByte]
 	if present {
-		log.Printf("detected rune: %d -> %c", targetByte, oracleDict[targetByte])
+		//log.Printf("detected rune: %d", oracleDict[targetByte])
 		return oracleDict[targetByte], nil
 	}
 	log.Fatal("Not detected")
@@ -132,7 +144,7 @@ func OracleX(key []byte, blockSize int, detected []byte) (byte, error) {
 }
 
 func TestAESPaddingOracle(t *testing.T) {
-	//constantAESKey := GenerateRandomAESKey()
+	constantAESKey := GenerateRandomAESKey()
 	blockSize := guessBlockSize([]byte(constantAESKey), PadAndEncryptECB)
 	assert.Equal(t, 16, blockSize)
 
@@ -142,9 +154,17 @@ func TestAESPaddingOracle(t *testing.T) {
 
 	detected := make([]byte, 0, 100)
 
-	for i := 0; i < 16; i++ {
+	for i := 0; true; i++ {
 		r, _ := OracleX([]byte(constantAESKey), blockSize, detected)
+		if r < 10 {
+			log.Printf("That last one is actually padding: %d", r)
+			//might be a good idea to cut off previously appended padding in [10,15]
+			break
+		}
 		detected = append(detected, r)
-		log.Printf("%s %d", string(detected), len(detected))
+		// log.Printf("%d %s", len(detected), string(detected))
 	}
+	log.Printf("Detected: %d string %s", len(detected), string(detected))
+	log.Println(detected)
+	assert.Equal(t, 138, len(detected))
 }
